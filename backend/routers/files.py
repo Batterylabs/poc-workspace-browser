@@ -1,0 +1,187 @@
+"""
+File browsing routes.
+  GET /api/files          — full directory tree
+  GET /api/file/{path}    — raw file content
+  GET /api/file-info/{path} — file metadata
+"""
+import os
+import mimetypes
+from pathlib import Path
+from typing import List, Optional, Dict, Any
+
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
+
+from backend.config import WORKSPACE_ROOT, BROWSERIGNORE_PATH
+from backend.services.ignore import load_ignore_patterns, is_ignored
+
+router = APIRouter()
+
+# ── Ignore patterns (loaded once at import, reloaded on each request) ─────────
+
+def _get_patterns():
+    return load_ignore_patterns(BROWSERIGNORE_PATH)
+
+
+def _build_tree(
+    root: Path,
+    rel: Path,
+    patterns: List[str],
+    max_depth: int = 8,
+    depth: int = 0,
+) -> Optional[Dict[str, Any]]:
+    if depth > max_depth:
+        return None
+
+    abs_path = root / rel
+    rel_str = str(rel).replace("\\", "/")
+
+    if rel_str != "." and is_ignored(rel_str, patterns):
+        return None
+
+    if abs_path.is_dir():
+        children = []
+        try:
+            entries = sorted(abs_path.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+        except PermissionError:
+            entries = []
+
+        for entry in entries:
+            child_rel = rel / entry.name
+            child_node = _build_tree(root, child_rel, patterns, max_depth, depth + 1)
+            if child_node is not None:
+                children.append(child_node)
+
+        if rel_str == ".":
+            return {"name": "/", "path": "", "type": "directory", "children": children}
+        return {
+            "name": abs_path.name,
+            "path": rel_str,
+            "type": "directory",
+            "children": children,
+        }
+    elif abs_path.is_file():
+        ext = abs_path.suffix.lower()
+        size = abs_path.stat().st_size
+        return {
+            "name": abs_path.name,
+            "path": rel_str,
+            "type": "file",
+            "ext": ext,
+            "size": size,
+        }
+    return None
+
+
+@router.get("/api/files")
+async def list_files():
+    """Return full workspace file tree respecting .browserignore."""
+    patterns = _get_patterns()
+    tree = _build_tree(WORKSPACE_ROOT, Path("."), patterns)
+    return tree
+
+
+TEXT_EXTENSIONS = {
+    ".md", ".txt", ".py", ".js", ".ts", ".jsx", ".tsx", ".svelte",
+    ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".sh", ".bash",
+    ".zsh", ".fish", ".html", ".htm", ".css", ".scss", ".less",
+    ".xml", ".csv", ".log", ".env", ".gitignore", ".sql", ".rs",
+    ".go", ".java", ".kt", ".swift", ".c", ".cpp", ".h", ".hpp",
+    ".rb", ".php", ".r", ".m", ".ipynb", ".dockerfile", ".Makefile",
+    ".mk", ".tf", ".hcl", ".proto", ".graphql", ".vue",
+}
+
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp"}
+
+BINARY_THRESHOLD = 8192  # bytes to sniff
+
+
+def _detect_type(path: Path) -> str:
+    ext = path.suffix.lower()
+    if ext in TEXT_EXTENSIONS:
+        return "text"
+    if ext in IMAGE_EXTENSIONS:
+        return "image"
+    # Try to sniff
+    try:
+        chunk = path.read_bytes()[:BINARY_THRESHOLD]
+        if b"\x00" in chunk:
+            return "binary"
+        chunk.decode("utf-8")
+        return "text"
+    except Exception:
+        return "binary"
+
+
+@router.get("/api/file/{file_path:path}")
+async def get_file(file_path: str, request: Request):
+    """Return file content. Text files return JSON with content; images stream."""
+    patterns = _get_patterns()
+    if is_ignored(file_path, patterns):
+        raise HTTPException(status_code=403, detail="Path is restricted")
+
+    abs_path = (WORKSPACE_ROOT / file_path).resolve()
+    # Security: ensure resolved path is under workspace root
+    try:
+        abs_path.relative_to(WORKSPACE_ROOT.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Path traversal denied")
+
+    if not abs_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    if abs_path.is_dir():
+        raise HTTPException(status_code=400, detail="Path is a directory")
+
+    kind = _detect_type(abs_path)
+
+    if kind == "image":
+        return FileResponse(str(abs_path))
+
+    if kind == "binary":
+        return JSONResponse(
+            {"type": "binary", "size": abs_path.stat().st_size, "name": abs_path.name}
+        )
+
+    # Text
+    try:
+        content = abs_path.read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return JSONResponse(
+        {
+            "type": "text",
+            "path": file_path,
+            "name": abs_path.name,
+            "ext": abs_path.suffix.lower(),
+            "size": abs_path.stat().st_size,
+            "content": content,
+        }
+    )
+
+
+@router.get("/api/file-info/{file_path:path}")
+async def file_info(file_path: str):
+    """Return file metadata without content."""
+    patterns = _get_patterns()
+    if is_ignored(file_path, patterns):
+        raise HTTPException(status_code=403, detail="Path is restricted")
+
+    abs_path = (WORKSPACE_ROOT / file_path).resolve()
+    try:
+        abs_path.relative_to(WORKSPACE_ROOT.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Path traversal denied")
+
+    if not abs_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    stat = abs_path.stat()
+    return {
+        "path": file_path,
+        "name": abs_path.name,
+        "ext": abs_path.suffix.lower(),
+        "size": stat.st_size,
+        "modified": stat.st_mtime,
+        "type": _detect_type(abs_path),
+    }

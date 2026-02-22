@@ -1,0 +1,122 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --sidebar-width: 280px;
+    --panel-width: 340px;
+    --toolbar-height: 48px;
+    --bottom-sheet-height: 60vh;
+  }
+
+  html {
+    @apply antialiased;
+    /* Prevent iOS text size adjust on orientation change */
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-white text-gray-900 dark:bg-gray-950 dark:text-gray-100;
+    font-family: 'Inter', system-ui, sans-serif;
+    /* Prevent pull-to-refresh interfering with scroll */
+    overscroll-behavior: none;
+  }
+
+  * {
+    @apply box-border;
+  }
+
+  /* Touch targets: applied explicitly via style="" on interactive elements.
+     We do NOT apply globally to avoid breaking prose/inline elements. */
+
+  ::-webkit-scrollbar {
+    @apply w-1.5 h-1.5;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 dark:bg-gray-700 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-400 dark:bg-gray-600;
+  }
+}
+
+@layer components {
+  /* ── Annotation highlights ─────────────────────────────────── */
+  .annotation-highlight {
+    @apply bg-yellow-100 dark:bg-yellow-900/30 cursor-pointer rounded;
+    border-bottom: 2px solid theme('colors.yellow.400');
+  }
+  .annotation-highlight:hover {
+    @apply bg-yellow-200 dark:bg-yellow-800/40;
+  }
+  .annotation-highlight.resolved {
+    @apply bg-green-50 dark:bg-green-900/20;
+    border-bottom-color: theme('colors.green.400');
+  }
+
+  /* ── Drawer overlay backdrop ──────────────────────────────── */
+  .drawer-backdrop {
+    @apply fixed inset-0 bg-black/40 z-30;
+    backdrop-filter: blur(2px);
+  }
+
+  /* ── Mobile drawer (file tree) ────────────────────────────── */
+  .sidebar-drawer {
+    @apply fixed top-0 left-0 h-full z-40 w-[280px] max-w-[85vw]
+           bg-gray-50 dark:bg-gray-900 shadow-2xl
+           transform transition-transform duration-300 ease-in-out
+           border-r border-gray-200 dark:border-gray-800;
+  }
+  .sidebar-drawer.open  { transform: translateX(0); }
+  .sidebar-drawer.closed { transform: translateX(-100%); }
+
+  /* ── Bottom sheet (annotation panel on mobile) ───────────── */
+  .bottom-sheet {
+    @apply fixed bottom-0 left-0 right-0 z-40
+           bg-white dark:bg-gray-900
+           rounded-t-2xl shadow-2xl
+           border-t border-gray-200 dark:border-gray-800
+           transform transition-transform duration-300 ease-in-out;
+    max-height: var(--bottom-sheet-height);
+  }
+  .bottom-sheet.open  { transform: translateY(0); }
+  .bottom-sheet.closed { transform: translateY(100%); }
+
+  /* ── Overlay panel (annotation on tablet) ────────────────── */
+  .overlay-panel {
+    @apply fixed top-0 right-0 h-full z-40 w-[340px]
+           bg-white dark:bg-gray-900 shadow-2xl
+           border-l border-gray-200 dark:border-gray-800
+           transform transition-transform duration-300 ease-in-out;
+  }
+  .overlay-panel.open  { transform: translateX(0); }
+  .overlay-panel.closed { transform: translateX(100%); }
+
+  /* ── Floating add comment button (mobile) ─────────────────── */
+  .fab {
+    @apply fixed bottom-6 right-6 z-30
+           w-14 h-14 rounded-full
+           bg-blue-600 hover:bg-blue-700 active:bg-blue-800
+           text-white shadow-lg
+           flex items-center justify-center text-2xl
+           transition-all duration-200;
+  }
+
+  /* ── Touch-friendly tree items ───────────────────────────── */
+  .tree-item {
+    @apply flex items-center gap-2 w-full text-left
+           rounded-lg transition-colors;
+    min-height: 44px;
+    padding: 0 12px;
+  }
+  .tree-item:hover {
+    @apply bg-gray-200 dark:bg-gray-800;
+  }
+  .tree-item.active {
+    @apply bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300;
+  }
+}

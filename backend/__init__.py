@@ -1,0 +1,1 @@
+# Workspace Browser backend package
