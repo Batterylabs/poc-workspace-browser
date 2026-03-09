@@ -1,11 +1,50 @@
 <script>
   import { createEventDispatcher } from 'svelte'
-  import { currentFile, annotationPanelOpen, openAnnotations } from '../lib/store.js'
+  import { currentFile, annotationPanelOpen, openAnnotations, selectedPaths, authToken } from '../lib/store.js'
+  import { apiFetch } from '../lib/api.js'
+  import OfflineBanner from './OfflineBanner.svelte'
+  import SyncIndicator from './SyncIndicator.svelte'
 
   export let breakpoint = 'desktop'
   export let sidebarOpen = false
 
   const dispatch = createEventDispatcher()
+  
+  let downloading = false
+
+  async function handleDownload() {
+    if ($selectedPaths.size === 0) return
+    
+    downloading = true
+    try {
+      const paths = Array.from($selectedPaths)
+      const response = await apiFetch('/api/download', {
+        method: 'POST',
+        body: JSON.stringify({ paths })
+      })
+      
+      if (!response.ok) {
+        throw new Error(`Download failed: ${response.statusText}`)
+      }
+      
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = paths.length === 1 && $selectedPaths.size === 1
+        ? paths[0].split('/').pop()
+        : 'download.zip'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error('Download error:', e)
+      alert(`Download failed: ${e.message}`)
+    } finally {
+      downloading = false
+    }
+  }
 
   $: file = $currentFile
   $: parts = file?.path ? file.path.split('/') : []
@@ -19,6 +58,9 @@
       : parts
   $: truncated = visibleParts.length < parts.length
 </script>
+
+<!-- Offline banner (full-width, above toolbar) -->
+<OfflineBanner />
 
 <header class="flex-shrink-0 flex items-center gap-2 px-3 border-b
                border-gray-200 dark:border-gray-800
@@ -81,8 +123,33 @@
   </nav>
 
   <!-- ── Actions ───────────────────────────────────────────────────────── -->
-  {#if file}
-    <div class="flex items-center gap-2 flex-shrink-0">
+  <div class="flex items-center gap-2 flex-shrink-0">
+    <!-- Sync status indicator -->
+    <SyncIndicator />
+
+    <!-- Download button (show when files selected) -->
+    {#if $selectedPaths.size > 0}
+      <button
+        on:click={handleDownload}
+        disabled={downloading}
+        class="flex items-center gap-1.5 rounded-lg text-xs font-medium transition-colors px-3
+               {downloading
+                 ? 'bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-400 cursor-not-allowed'
+                 : 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900/60 dark:text-green-200'}"
+        style="min-height:44px"
+        aria-label="Download selected files"
+      >
+        <span>⬇️</span>
+        <span class="hidden xs:inline sm:inline">
+          {downloading ? 'Downloading...' : `Download (${$selectedPaths.size})`}
+        </span>
+        <span class="sm:hidden inline font-bold">
+          {downloading ? '...' : $selectedPaths.size}
+        </span>
+      </button>
+    {/if}
+
+    {#if file}
       <!-- File type badge (hide on mobile to save space) -->
       {#if breakpoint === 'desktop' && file.ext}
         <span class="text-xs text-gray-400 dark:text-gray-500 font-mono px-1">
@@ -115,6 +182,6 @@
           <span class="sm:hidden inline font-bold">{openCount}</span>
         {/if}
       </button>
-    </div>
-  {/if}
+    {/if}
+  </div>
 </header>

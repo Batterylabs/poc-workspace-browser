@@ -3,14 +3,18 @@ File browsing routes.
   GET /api/files          — full directory tree
   GET /api/file/{path}    — raw file content
   GET /api/file-info/{path} — file metadata
+  POST /api/download      — download file(s) as zip
 """
 import os
 import mimetypes
+import io
+import zipfile
 from pathlib import Path
 from typing import List, Optional, Dict, Any
+from pydantic import BaseModel
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from backend.config import WORKSPACE_ROOT, BROWSERIGNORE_PATH
 from backend.services.ignore import load_ignore_patterns, is_ignored
@@ -185,3 +189,78 @@ async def file_info(file_path: str):
         "modified": stat.st_mtime,
         "type": _detect_type(abs_path),
     }
+
+
+# ── Download endpoint ──────────────────────────────────────────────────────────
+
+class DownloadRequest(BaseModel):
+    paths: List[str]  # relative paths to download
+
+
+def _add_to_zip(zf: zipfile.ZipFile, file_path: Path, arcname_base: str):
+    """Recursively add file or folder to zip file."""
+    if file_path.is_file():
+        # Add single file with relative path
+        zf.write(file_path, arcname=f"{arcname_base}/{file_path.name}")
+    elif file_path.is_dir():
+        # Add directory recursively, maintaining structure
+        for item in file_path.rglob("*"):
+            if item.is_file():
+                rel_to_base = item.relative_to(file_path.parent)
+                zf.write(item, arcname=str(rel_to_base))
+
+
+@router.post("/api/download")
+async def download_files(req: DownloadRequest):
+    """Download one or more files/folders as zip (or direct file if single file)."""
+    if not req.paths or len(req.paths) == 0:
+        raise HTTPException(status_code=400, detail="No paths specified")
+
+    patterns = _get_patterns()
+    
+    # Validate and resolve all paths
+    abs_paths = []
+    names = []
+    for rel_path in req.paths:
+        if is_ignored(rel_path, patterns):
+            raise HTTPException(status_code=403, detail=f"Path is restricted: {rel_path}")
+        
+        abs_path = (WORKSPACE_ROOT / rel_path).resolve()
+        try:
+            abs_path.relative_to(WORKSPACE_ROOT.resolve())
+        except ValueError:
+            raise HTTPException(status_code=403, detail=f"Path traversal denied: {rel_path}")
+        
+        if not abs_path.exists():
+            raise HTTPException(status_code=404, detail=f"Path not found: {rel_path}")
+        
+        abs_paths.append(abs_path)
+        names.append(abs_path.name)
+
+    # Single file: return directly
+    if len(abs_paths) == 1 and abs_paths[0].is_file():
+        return FileResponse(
+            str(abs_paths[0]),
+            filename=abs_paths[0].name,
+            media_type="application/octet-stream"
+        )
+
+    # Multiple items or folder: create zip
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for abs_path in abs_paths:
+            _add_to_zip(zf, abs_path, "")
+
+    zip_buffer.seek(0)
+    
+    # Generate filename
+    if len(abs_paths) == 1:
+        zip_name = f"{abs_paths[0].name}.zip"
+    else:
+        zip_name = "download.zip"
+
+    return StreamingResponse(
+        iter([zip_buffer.getvalue()]),
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={zip_name}"}
+    )

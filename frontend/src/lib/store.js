@@ -17,6 +17,14 @@ export const pendingAnnotation = writable(null)    // { anchorType, anchorId, se
 export const authToken = writable(
   typeof window !== 'undefined' ? localStorage.getItem('wb_token') || '' : ''
 )
+export const selectedPaths = writable(new Set())  // Set of selected file/folder paths
+
+// ── Offline stores ───────────────────────────────────────────────────────────
+export const isOnline = writable(
+  typeof navigator !== 'undefined' ? navigator.onLine : true
+)
+export const syncStatus = writable('idle')        // 'idle' | 'syncing' | 'success' | 'error'
+export const pendingCount = writable(0)           // count of queued offline items
 
 // Persist dark mode
 darkMode.subscribe((val) => {

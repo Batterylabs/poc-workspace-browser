@@ -3,6 +3,7 @@
   import { darkMode } from '../lib/store.js'
 
   export let showClose = false
+  export let showCollapse = false
 
   const dispatch = createEventDispatcher()
 </script>
@@ -50,6 +51,18 @@
       >
         ✕
       </button>
+    {/if}
+
+    <!-- Collapse (desktop) -->
+    {#if showCollapse}
+      <button
+        on:click={() => dispatch('collapse')}
+        class="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700
+               text-gray-500 dark:text-gray-400 text-base leading-none"
+        style="min-height:44px;min-width:44px"
+        title="Collapse sidebar"
+        aria-label="Collapse file tree"
+      >‹</button>
     {/if}
   </div>
 </div>

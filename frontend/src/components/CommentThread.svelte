@@ -1,6 +1,7 @@
 <script>
   import { createEventDispatcher } from 'svelte'
   import { replyAnnotation, resolveAnnotation, deleteAnnotation } from '../lib/api.js'
+  import { isOnline } from '../lib/store.js'
 
   export let annotation
 
@@ -44,6 +45,10 @@
   }
 
   async function resolve() {
+    if (!$isOnline) {
+      alert('Cannot resolve while offline — this requires server confirmation.')
+      return
+    }
     try {
       await resolveAnnotation(annotation.id, 'bruce')
       dispatch('updated')
@@ -53,6 +58,10 @@
   }
 
   async function remove() {
+    if (!$isOnline) {
+      alert('Cannot delete while offline — this requires server confirmation.')
+      return
+    }
     if (!confirm('Delete this comment and all replies?')) return
     try {
       await deleteAnnotation(annotation.id)
@@ -62,14 +71,27 @@
     }
   }
 
+  $: isPending = annotation._pending
   $: isResolved = annotation.resolved
   $: replies = annotation.replies || []
+  $: offline = !$isOnline
 </script>
 
 <article
   class="px-4 py-3 border-b border-gray-100 dark:border-gray-800/70 transition-opacity"
   class:opacity-50={isResolved}
+  class:pending-annotation={isPending}
 >
+  <!-- ── Pending badge ─────────────────────────────────────────────────── -->
+  {#if isPending}
+    <div class="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-lg
+                bg-amber-50 dark:bg-amber-900/20 border border-dashed border-amber-300 dark:border-amber-700
+                text-amber-700 dark:text-amber-300">
+      <span class="text-xs">🕐</span>
+      <span class="text-xs font-medium">Queued — will sync when online</span>
+    </div>
+  {/if}
+
   <!-- ── Root comment ─────────────────────────────────────────────────── -->
   <div class="flex gap-3 items-start">
     <!-- Avatar -->
@@ -108,7 +130,7 @@
       </p>
 
       <!-- Action row (touch-friendly: use larger tap area via padding) -->
-      {#if !isResolved}
+      {#if !isResolved && !isPending}
         <div class="flex gap-1 mt-2 -ml-2">
           <button
             on:click={() => showReplyForm = !showReplyForm}
@@ -121,12 +143,16 @@
             class="px-2 py-1.5 text-xs text-green-600 hover:text-green-800
                    dark:hover:text-green-400 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20"
             style="min-height:36px"
+            disabled={offline}
+            class:opacity-50={offline}
           >Resolve ✓</button>
           <button
             on:click={remove}
             class="px-2 py-1.5 text-xs text-red-400 hover:text-red-600
                    dark:hover:text-red-300 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20"
             style="min-height:36px"
+            disabled={offline}
+            class:opacity-50={offline}
           >Delete</button>
         </div>
       {/if}
@@ -137,7 +163,7 @@
   {#if replies.length > 0}
     <div class="ml-10 mt-3 space-y-2 border-l-2 border-gray-100 dark:border-gray-800 pl-3">
       {#each replies as reply (reply.id)}
-        <div class="flex gap-2 items-start">
+        <div class="flex gap-2 items-start" class:pending-reply={reply._pending}>
           <div class="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center
                       text-xs font-bold {avatarColor(reply.author)}"
                aria-hidden="true">
@@ -147,6 +173,9 @@
             <div class="flex items-center gap-2 mb-0.5 flex-wrap">
               <span class="text-xs font-semibold text-gray-800 dark:text-gray-200 capitalize">{reply.author}</span>
               <span class="text-xs text-gray-400 dark:text-gray-500">{fmtDate(reply.created_at)}</span>
+              {#if reply._pending}
+                <span class="text-xs text-amber-600 dark:text-amber-400">🕐 Queued</span>
+              {/if}
             </div>
             <p class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">
               {reply.comment}
@@ -174,7 +203,7 @@
       </div>
       <textarea
         bind:value={replyText}
-        placeholder="Reply…"
+        placeholder={offline ? "Reply (will sync later)…" : "Reply…"}
         rows="3"
         class="w-full text-sm px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700
                bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white resize-none
@@ -188,7 +217,7 @@
           class="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50
                  text-white text-xs font-medium rounded-xl transition-colors"
           style="min-height:44px"
-        >{submitting ? '…' : 'Post reply'}</button>
+        >{submitting ? '…' : offline ? 'Queue reply' : 'Post reply'}</button>
         <button
           on:click={() => { showReplyForm = false; replyText = '' }}
           class="px-4 py-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300
@@ -199,3 +228,13 @@
     </div>
   {/if}
 </article>
+
+<style>
+  .pending-annotation {
+    border-left: 3px dashed #f59e0b;
+    background: rgba(245, 158, 11, 0.03);
+  }
+  :global(.dark) .pending-annotation {
+    background: rgba(245, 158, 11, 0.05);
+  }
+</style>

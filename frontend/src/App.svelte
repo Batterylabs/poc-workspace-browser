@@ -3,8 +3,11 @@
   import { setToken, hasToken, fetchTree, fetchAnnotationStats } from './lib/api.js'
   import {
     darkMode, currentFile, annotationPanelOpen,
-    annotationStats, authToken, pendingAnnotation
+    annotationStats, authToken, pendingAnnotation, isOnline
   } from './lib/store.js'
+  import { initSyncManager } from './lib/syncManager.js'
+  import { refreshPendingCount } from './lib/offlineQueue.js'
+  import { initPins, syncAllPins } from './lib/offlinePins.js'
 
   import SidebarHeader from './components/SidebarHeader.svelte'
   import FileTree from './components/FileTree.svelte'
@@ -27,6 +30,17 @@
   // 'mobile' < 768  |  'tablet' 768–1023  |  'desktop' ≥ 1024
   let breakpoint = 'desktop'
   let sidebarOpen = false
+
+  // ── Desktop sidebar collapse (persisted) ────────────────────────────────
+  let sidebarCollapsed = typeof localStorage !== 'undefined'
+    ? localStorage.getItem('sidebarCollapsed') === 'true'
+    : false
+
+  function toggleDesktopSidebar() {
+    sidebarCollapsed = !sidebarCollapsed
+    if (typeof localStorage !== 'undefined')
+      localStorage.setItem('sidebarCollapsed', String(sidebarCollapsed))
+  }
 
   function calcBreakpoint() {
     const w = window.innerWidth
@@ -68,8 +82,38 @@
       loading = false
     }
 
+    // Initialize offline support
+    initSyncManager()
+    refreshPendingCount().catch(() => {})
+    
+    // Initialize offline pins (load pinned paths, prefetch if online)
+    const token = localStorage.getItem('wb_token') || ''
+    if (token) {
+      initPins(token).then(() => {
+        if (navigator.onLine) syncAllPins().catch(() => {})
+      }).catch(() => {})
+    }
+
+    // Register service worker
+    registerServiceWorker()
+
     return () => window.removeEventListener('resize', handleResize)
   })
+
+  function registerServiceWorker() {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .register('/sw.js', { scope: '/' })
+        .then((reg) => {
+          console.log('Service worker registered:', reg.scope)
+          // Check for updates periodically
+          setInterval(() => reg.update(), 60 * 60 * 1000) // hourly
+        })
+        .catch((err) => {
+          console.warn('Service worker registration failed:', err)
+        })
+    }
+  }
 
   async function handleAuth() {
     if (!authInput.trim()) return
@@ -211,13 +255,30 @@
     <!-- Desktop: static | Tablet+Mobile: slide-in drawer              -->
     <!-- ═══════════════════════════════════════════════════════════════ -->
     {#if isDesktop}
-      <!-- Static sidebar on desktop -->
-      <aside class="w-[280px] flex-shrink-0 border-r border-gray-200 dark:border-gray-800
-                     flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-900">
-        <SidebarHeader showClose={false} on:refresh={loadTree} />
-        <div class="flex-1 overflow-y-auto">
-          {#if tree}<FileTree node={tree} depth={0} on:fileSelected={onFileSelected} />{/if}
-        </div>
+      <!-- Static sidebar on desktop (collapsible) -->
+      <aside class="{sidebarCollapsed ? 'w-[40px]' : 'w-[280px]'} flex-shrink-0 border-r
+                     border-gray-200 dark:border-gray-800 flex flex-col overflow-hidden
+                     bg-gray-50 dark:bg-gray-900 transition-all duration-200">
+        {#if sidebarCollapsed}
+          <!-- Collapsed: show only toggle button -->
+          <div class="flex flex-col items-center pt-2">
+            <button
+              on:click={toggleDesktopSidebar}
+              class="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700
+                     text-gray-500 dark:text-gray-400 text-base leading-none"
+              style="min-height:44px;min-width:36px"
+              title="Expand sidebar"
+              aria-label="Expand file tree"
+            >☰</button>
+          </div>
+        {:else}
+          <!-- Expanded: full header + tree -->
+          <SidebarHeader showClose={false} showCollapse={true}
+                         on:refresh={loadTree} on:collapse={toggleDesktopSidebar} />
+          <div class="flex-1 overflow-y-auto">
+            {#if tree}<FileTree node={tree} depth={0} on:fileSelected={onFileSelected} />{/if}
+          </div>
+        {/if}
       </aside>
 
     {:else}
@@ -251,6 +312,12 @@
         <!-- ── File viewer ────────────────────────────────────────── -->
         <main class="flex-1 overflow-y-auto min-w-0 overscroll-contain" id="viewer-pane">
           {#if $currentFile}
+            {#if $currentFile._fromCache}
+              <div class="px-4 py-1.5 bg-amber-50 dark:bg-amber-900/20 border-b
+                          border-amber-200 dark:border-amber-700 text-xs text-amber-700 dark:text-amber-300">
+                📦 Viewing cached version (offline)
+              </div>
+            {/if}
             {#if viewerType === 'markdown'}
               <MarkdownViewer {breakpoint} />
             {:else if viewerType === 'code'}
@@ -276,9 +343,12 @@
           {/if}
         </main>
 
-        <!-- ── Desktop: inline annotation sidebar ─────────────────── -->
+        <!-- ── Desktop: inline annotation sidebar (fixed 350px, never overlays) -->
         {#if isDesktop && $annotationPanelOpen}
-          <AnnotationPanel {breakpoint} />
+          <div style="width:350px;flex-shrink:0"
+               class="border-l border-gray-200 dark:border-gray-800 flex flex-col overflow-hidden">
+            <AnnotationPanel {breakpoint} />
+          </div>
         {/if}
 
         <!-- ── Tablet: right-side overlay panel ───────────────────── -->

@@ -43,8 +43,8 @@ UNPROTECTED = {"/", "/health"}
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
 
-    # Allow health check and static assets without token
-    if path == "/health" or path.startswith("/assets/") or path == "/favicon.ico":
+    # Allow health check, static assets, and service worker without token
+    if path == "/health" or path.startswith("/assets/") or path == "/favicon.ico" or path == "/sw.js":
         return await call_next(request)
 
     # For API routes, require Bearer token
@@ -92,6 +92,18 @@ DIST_DIR = Path(__file__).parent.parent / "dist"
 
 if DIST_DIR.exists():
     app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="assets")
+
+    @app.get("/sw.js")
+    async def serve_sw():
+        """Serve service worker from root (required for SW scope)."""
+        sw_path = DIST_DIR / "sw.js"
+        if sw_path.exists():
+            return FileResponse(
+                str(sw_path),
+                media_type="application/javascript",
+                headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"},
+            )
+        return JSONResponse({"error": "Service worker not found"}, status_code=404)
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str, token: str = ""):

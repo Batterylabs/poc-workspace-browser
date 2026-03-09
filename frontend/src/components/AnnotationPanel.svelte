@@ -1,6 +1,6 @@
 <script>
   import { annotations, currentFile, annotationPanelOpen,
-           annotationStats, pendingAnnotation } from '../lib/store.js'
+           annotationStats, pendingAnnotation, isOnline } from '../lib/store.js'
   import { createAnnotation, fetchAnnotations, fetchAnnotationStats } from '../lib/api.js'
   import CommentThread from './CommentThread.svelte'
 
@@ -23,21 +23,48 @@
     ? `Comments · ${$currentFile.name}`
     : 'Comments'
 
+  $: offline = !$isOnline
+
   async function submitComment() {
     if (!newComment.trim() || !$currentFile) return
     submitting = true
     try {
       const pending = $pendingAnnotation || {}
-      await createAnnotation({
+      const commentText = newComment.trim()
+      const result = await createAnnotation({
         filePath: $currentFile.path,
         anchorType:   pending.anchorType   || 'file',
         anchorId:     pending.anchorId     || null,
         selectedText: pending.selectedText || null,
-        comment: newComment.trim(),
+        comment: commentText,
         author,
       })
       newComment = ''
       pendingAnnotation.set(null)
+
+      // If queued offline, show it immediately in the list
+      if (result._pending) {
+        annotations.update((anns) => [
+          ...anns,
+          {
+            id: result.id,
+            file_path: $currentFile.path,
+            anchor_type: pending.anchorType || 'file',
+            anchor_id: pending.anchorId || null,
+            selected_text: pending.selectedText || null,
+            comment: commentText,
+            author,
+            parent_id: null,
+            resolved: false,
+            resolved_at: null,
+            resolved_by: null,
+            created_at: result.created_at,
+            replies: [],
+            _pending: true,
+          },
+        ])
+      }
+
       await reload()
     } catch (e) {
       alert('Failed to submit: ' + e.message)
@@ -48,10 +75,17 @@
 
   async function reload() {
     if (!$currentFile) return
-    const anns   = await fetchAnnotations($currentFile.path)
-    const stats  = await fetchAnnotationStats()
-    annotations.set(anns)
-    annotationStats.set(stats)
+    try {
+      const anns   = await fetchAnnotations($currentFile.path)
+      const stats  = await fetchAnnotationStats()
+      annotations.set(anns)
+      annotationStats.set(stats)
+    } catch (e) {
+      // Silently handle offline reload failures
+      if (navigator.onLine) {
+        console.error('Failed to reload annotations:', e)
+      }
+    }
   }
 
   // Close panel (works for all layouts)
@@ -78,6 +112,16 @@
       aria-label="Close comments panel"
     >✕</button>
   </div>
+
+  <!-- ── Offline notice ──────────────────────────────────────────────── -->
+  {#if offline}
+    <div class="flex-shrink-0 mx-4 mt-2 px-3 py-1.5 rounded-lg
+                bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
+      <p class="text-xs text-amber-700 dark:text-amber-300">
+        📡 Offline — comments will be queued and synced when reconnected
+      </p>
+    </div>
+  {/if}
 
   <!-- ── Pending anchor context (if from selection / line) ────────────── -->
   {#if $pendingAnnotation?.selectedText}
@@ -115,7 +159,7 @@
     <!-- Text area — taller on mobile for easier typing -->
     <textarea
       bind:value={newComment}
-      placeholder="Add a comment…"
+      placeholder={offline ? "Add a comment (will sync later)…" : "Add a comment…"}
       rows={isMobile ? 4 : 3}
       class="w-full text-sm px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700
              bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white resize-none
@@ -132,7 +176,13 @@
                disabled:opacity-50 text-white text-sm rounded-xl font-medium transition-colors"
         style="min-height:44px"
       >
-        {submitting ? 'Submitting…' : 'Add Comment'}
+        {#if submitting}
+          Submitting…
+        {:else if offline}
+          Queue Comment
+        {:else}
+          Add Comment
+        {/if}
       </button>
       {#if $pendingAnnotation}
         <button
