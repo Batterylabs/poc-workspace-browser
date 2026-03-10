@@ -4,6 +4,8 @@
   import { isOnline } from '../lib/store.js'
 
   export let annotation
+  export let pinNumber = null         // Sequential pin number (for image pins)
+  export let annotationMeta = null    // Parsed metadata { type, color, ... }
 
   const dispatch = createEventDispatcher()
 
@@ -104,6 +106,19 @@
     <div class="flex-1 min-w-0">
       <!-- Meta row -->
       <div class="flex items-center gap-2 flex-wrap mb-1">
+        {#if annotationMeta?.type === 'pin' && pinNumber}
+          <span
+            class="inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-xs font-bold flex-shrink-0"
+            style="background-color: {annotationMeta.color || '#ef4444'}"
+            title="Pin #{pinNumber}"
+          >{pinNumber}</span>
+        {:else if annotationMeta?.type === 'arrow'}
+          <span class="text-xs flex-shrink-0" title="Arrow annotation" style="color: {annotationMeta.color || '#ef4444'}">➜</span>
+        {:else if annotationMeta?.type === 'rect'}
+          <span class="text-xs flex-shrink-0" title="Rectangle annotation" style="color: {annotationMeta.color || '#ef4444'}">▭</span>
+        {:else if annotationMeta?.type === 'pen'}
+          <span class="text-xs flex-shrink-0" title="Freehand annotation" style="color: {annotationMeta.color || '#ef4444'}">✏</span>
+        {/if}
         <span class="text-xs font-semibold text-gray-800 dark:text-gray-200 capitalize">
           {annotation.author}
         </span>

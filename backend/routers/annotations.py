@@ -24,11 +24,12 @@ router = APIRouter()
 
 class AnnotationCreate(BaseModel):
     file_path: str
-    anchor_type: str  # file | block | line | selection
+    anchor_type: str  # file | block | line | selection | image-region
     anchor_id: Optional[str] = None
     selected_text: Optional[str] = None
     comment: str
     author: str = "shankar"
+    metadata: Optional[str] = None  # JSON string for image drawing data etc.
 
 
 class ReplyCreate(BaseModel):
@@ -49,6 +50,7 @@ class AnnotationOut(BaseModel):
     resolved_at: Optional[str]
     resolved_by: Optional[str]
     created_at: str
+    metadata: Optional[str] = None
     replies: list = []
 
 
@@ -98,10 +100,10 @@ async def create_annotation(body: AnnotationCreate):
     try:
         await db.execute(
             """INSERT INTO annotations
-               (id, file_path, anchor_type, anchor_id, selected_text, comment, author, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (id, file_path, anchor_type, anchor_id, selected_text, comment, author, created_at, metadata)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (ann_id, body.file_path, body.anchor_type, body.anchor_id,
-             body.selected_text, body.comment, body.author, now),
+             body.selected_text, body.comment, body.author, now, body.metadata),
         )
         await db.commit()
     finally:

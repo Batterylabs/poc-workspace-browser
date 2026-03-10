@@ -19,6 +19,36 @@
   $: open     = $annotations.filter((a) => !a.resolved && !a.parent_id)
   $: resolved = $annotations.filter((a) =>  a.resolved && !a.parent_id)
 
+  // Compute pin numbers for image-region annotations (1-based, ordered by created_at)
+  $: pinNumberMap = (() => {
+    let idx = 0
+    const map = {}
+    // all annotations in order (open + resolved, by created_at)
+    const all = [...$annotations].filter(a => !a.parent_id).sort((a, b) =>
+      (a.created_at || '').localeCompare(b.created_at || '')
+    )
+    for (const a of all) {
+      if (a.anchor_type === 'image-region' && a.metadata) {
+        try {
+          const meta = typeof a.metadata === 'string' ? JSON.parse(a.metadata) : a.metadata
+          if (meta.type === 'pin') {
+            idx++
+            map[a.id] = idx
+          }
+        } catch {}
+      }
+    }
+    return map
+  })()
+
+  // Parse metadata for image annotations
+  function getAnnotationMeta(ann) {
+    if (ann.anchor_type !== 'image-region' || !ann.metadata) return null
+    try {
+      return typeof ann.metadata === 'string' ? JSON.parse(ann.metadata) : ann.metadata
+    } catch { return null }
+  }
+
   $: panelTitle = $currentFile
     ? `Comments · ${$currentFile.name}`
     : 'Comments'
@@ -38,12 +68,13 @@
         selectedText: pending.selectedText || null,
         comment: commentText,
         author,
+        metadata:     pending.metadata     || null,
       })
       newComment = ''
       pendingAnnotation.set(null)
 
       // If queued offline, show it immediately in the list
-      if (result._pending) {
+      if (result && result._pending) {
         annotations.update((anns) => [
           ...anns,
           {
@@ -59,13 +90,18 @@
             resolved_at: null,
             resolved_by: null,
             created_at: result.created_at,
+            metadata: pending.metadata || null,
             replies: [],
             _pending: true,
           },
         ])
       }
 
-      await reload()
+      // Reload with timeout to prevent hanging
+      await Promise.race([
+        reload(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('reload timeout')), 5000))
+      ]).catch((e) => console.warn('Reload after submit:', e.message))
     } catch (e) {
       alert('Failed to submit: ' + e.message)
     } finally {
@@ -123,8 +159,22 @@
     </div>
   {/if}
 
-  <!-- ── Pending anchor context (if from selection / line) ────────────── -->
-  {#if $pendingAnnotation?.selectedText}
+  <!-- ── Pending anchor context (if from selection / line / image pin) ── -->
+  {#if $pendingAnnotation?.metadata}
+    {@const _meta = (() => { try { return JSON.parse($pendingAnnotation.metadata) } catch { return null } })()}
+    {#if _meta?.type === 'pin'}
+      <div class="flex-shrink-0 mx-4 mt-3 px-3 py-2 rounded-lg
+                  bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700">
+        <p class="text-xs text-red-700 dark:text-red-300 font-medium flex items-center gap-1.5">
+          <span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-xs font-bold"
+                style="background-color: {_meta.color || '#ef4444'}">
+            {$pendingAnnotation.anchorId?.replace('pin-', '') || '?'}
+          </span>
+          Add a comment for this pin
+        </p>
+      </div>
+    {/if}
+  {:else if $pendingAnnotation?.selectedText}
     <div class="flex-shrink-0 mx-4 mt-3 px-3 py-2 rounded-lg
                 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700">
       <p class="text-xs text-yellow-700 dark:text-yellow-300 font-medium mb-0.5">Commenting on:</p>
@@ -206,7 +256,12 @@
     {/if}
 
     {#each open as ann (ann.id)}
-      <CommentThread annotation={ann} on:updated={reload} />
+      <CommentThread
+        annotation={ann}
+        pinNumber={pinNumberMap[ann.id] || null}
+        annotationMeta={getAnnotationMeta(ann)}
+        on:updated={reload}
+      />
     {/each}
 
     <!-- Resolved section (collapsible) -->
@@ -225,7 +280,12 @@
         </button>
         {#if showResolved}
           {#each resolved as ann (ann.id)}
-            <CommentThread annotation={ann} on:updated={reload} />
+            <CommentThread
+              annotation={ann}
+              pinNumber={pinNumberMap[ann.id] || null}
+              annotationMeta={getAnnotationMeta(ann)}
+              on:updated={reload}
+            />
           {/each}
         {/if}
       </div>

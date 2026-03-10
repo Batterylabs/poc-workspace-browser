@@ -54,6 +54,7 @@
     try {
       const data = await fetchFile(node.path)
       currentFile.set({ ...data, path: node.path, name: node.name, ext: node.ext })
+      try { localStorage.setItem('wb_lastFile', node.path) } catch {}
       const anns = await fetchAnnotations(node.path)
       annotations.set(anns)
       dispatch('fileSelected', { path: node.path })

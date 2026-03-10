@@ -20,12 +20,18 @@ CREATE TABLE IF NOT EXISTS annotations (
     resolved      INTEGER DEFAULT 0,
     resolved_at   DATETIME,
     resolved_by   TEXT,
-    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    metadata      TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_ann_file_path ON annotations(file_path);
 CREATE INDEX IF NOT EXISTS idx_ann_parent    ON annotations(parent_id);
 """
+
+
+MIGRATIONS = [
+    "ALTER TABLE annotations ADD COLUMN metadata TEXT",
+]
 
 
 async def get_db() -> aiosqlite.Connection:
@@ -40,5 +46,11 @@ async def init_db():
     """Initialize the database schema."""
     async with aiosqlite.connect(str(DB_PATH)) as db:
         await db.executescript(CREATE_TABLE_SQL)
+        # Run migrations (idempotent)
+        for migration in MIGRATIONS:
+            try:
+                await db.execute(migration)
+            except Exception:
+                pass  # Column already exists
         await db.commit()
     logger.info(f"Database initialized at {DB_PATH}")

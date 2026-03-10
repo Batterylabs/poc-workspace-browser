@@ -157,8 +157,9 @@ export async function fetchAnnotations(filePath) {
 
     return anns
   } catch (e) {
-    // If offline, return only queued annotations
-    if (!navigator.onLine) {
+    // If offline or network error, return only queued annotations
+    const isNetworkError = !navigator.onLine || e.message?.includes('fetch') || e.name === 'TypeError'
+    if (isNetworkError || !navigator.onLine) {
       const key = await getKey()
       if (key) {
         const queued = await getQueuedForFile(key, filePath)
@@ -196,13 +197,13 @@ export async function fetchAnnotationStats() {
   }
 }
 
-export async function createAnnotation({ filePath, anchorType, anchorId, selectedText, comment, author = 'shankar' }) {
+export async function createAnnotation({ filePath, anchorType, anchorId, selectedText, comment, author = 'shankar', metadata = null }) {
   // If offline, queue it
   if (!navigator.onLine) {
     const key = await getKey()
     if (!key) throw new Error('Cannot queue offline — no encryption key')
     const queueId = await enqueue(key, 'annotation', {
-      filePath, anchorType, anchorId, selectedText, comment, author,
+      filePath, anchorType, anchorId, selectedText, comment, author, metadata,
     })
     return { id: queueId, created_at: new Date().toISOString(), _pending: true }
   }
@@ -218,6 +219,7 @@ export async function createAnnotation({ filePath, anchorType, anchorId, selecte
         selected_text: selectedText,
         comment,
         author,
+        metadata,
       }),
     })
     return res.json()
@@ -229,7 +231,7 @@ export async function createAnnotation({ filePath, anchorType, anchorId, selecte
       const { get: storeGet } = await import('svelte/store')
       isOnlineStore.set(false)  // Mark as offline since server is unreachable
       const queueId = await enqueue(key, 'annotation', {
-        filePath, anchorType, anchorId, selectedText, comment, author,
+        filePath, anchorType, anchorId, selectedText, comment, author, metadata,
       })
       return { id: queueId, created_at: new Date().toISOString(), _pending: true }
     }

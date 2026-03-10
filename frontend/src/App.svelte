@@ -1,8 +1,8 @@
 <script>
   import { onMount } from 'svelte'
-  import { setToken, hasToken, fetchTree, fetchAnnotationStats } from './lib/api.js'
+  import { setToken, hasToken, fetchTree, fetchFile, fetchAnnotationStats, fetchAnnotations } from './lib/api.js'
   import {
-    darkMode, currentFile, annotationPanelOpen,
+    darkMode, currentFile, annotations, annotationPanelOpen,
     annotationStats, authToken, pendingAnnotation, isOnline
   } from './lib/store.js'
   import { initSyncManager } from './lib/syncManager.js'
@@ -78,6 +78,8 @@
     if (hasToken()) {
       authenticated = true
       await loadTree()
+      // Restore last viewed file
+      restoreLastFile()
     } else {
       loading = false
     }
@@ -97,7 +99,16 @@
     // Register service worker
     registerServiceWorker()
 
-    return () => window.removeEventListener('resize', handleResize)
+    // Auto-refresh tree: reload when coming back online + poll every 30s
+    const handleOnline = () => {
+      if (authenticated) loadTree().catch(() => {})
+    }
+    window.addEventListener('online', handleOnline)
+
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      window.removeEventListener('online', handleOnline)
+    }
   })
 
   function registerServiceWorker() {
@@ -121,6 +132,21 @@
     authToken.set(authInput.trim())
     authenticated = true
     await loadTree()
+  }
+
+  async function restoreLastFile() {
+    try {
+      const lastPath = localStorage.getItem('wb_lastFile')
+      if (!lastPath) return
+      const ext = '.' + lastPath.split('.').pop()
+      const name = lastPath.split('/').pop()
+      const data = await fetchFile(lastPath)
+      currentFile.set({ ...data, path: lastPath, name, ext })
+      const anns = await fetchAnnotations(lastPath)
+      annotations.set(anns)
+    } catch (e) {
+      console.warn('Could not restore last file:', e)
+    }
   }
 
   async function loadTree() {
