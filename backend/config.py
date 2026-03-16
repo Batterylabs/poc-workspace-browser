@@ -7,7 +7,17 @@ import uuid
 from pathlib import Path
 
 # ── Workspace root ────────────────────────────────────────────────────────────
-WORKSPACE_ROOT = Path(os.environ.get("WORKSPACE_ROOT", "/Users/botuser/.openclaw/workspace"))
+
+class WorkspaceState:
+    def __init__(self):
+        self.default_root = Path(os.environ.get("WORKSPACE_ROOT", "/Users/botuser/.openclaw/workspace"))
+        self.root = self.default_root
+
+    def set_root(self, path: str):
+        self.root = Path(path)
+
+workspace_state = WorkspaceState()
+
 
 # ── Auth token ────────────────────────────────────────────────────────────────
 _TOKEN_FILE = Path(__file__).parent / "_token.txt"

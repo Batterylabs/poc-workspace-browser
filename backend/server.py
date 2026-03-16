@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.config import AUTH_TOKEN, PORT, WORKSPACE_ROOT
+from backend.config import AUTH_TOKEN, PORT, workspace_state
 from backend.db import init_db
 from backend.routers import files as files_router
 from backend.routers import annotations as annotations_router
@@ -71,7 +71,7 @@ async def startup():
     logger.info("  Workspace Browser started")
     logger.info(f"  URL:   http://0.0.0.0:{PORT}")
     logger.info(f"  Token: {AUTH_TOKEN}")
-    logger.info(f"  Root:  {WORKSPACE_ROOT}")
+    logger.info(f"  Root:  {workspace_state.root}")
     logger.info("=" * 60)
     logger.info(f"  Access: http://localhost:{PORT}/?token={AUTH_TOKEN}")
     logger.info("=" * 60)

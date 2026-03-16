@@ -283,3 +283,16 @@ export async function deleteAnnotation(annotationId) {
   })
   return res.json()
 }
+
+export async function fetchRoot() {
+  const res = await apiFetch(`/api/root`)
+  return res.json()
+}
+
+export async function updateRoot(path) {
+  const res = await apiFetch(`/api/root`, {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+  })
+  return res.json()
+}

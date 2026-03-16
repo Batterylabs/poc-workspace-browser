@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from backend.config import WORKSPACE_ROOT, BROWSERIGNORE_PATH
+from backend.config import workspace_state, BROWSERIGNORE_PATH
 from backend.services.ignore import load_ignore_patterns, is_ignored
 
 router = APIRouter()
@@ -81,7 +81,7 @@ def _build_tree(
 async def list_files():
     """Return full workspace file tree respecting .browserignore."""
     patterns = _get_patterns()
-    tree = _build_tree(WORKSPACE_ROOT, Path("."), patterns)
+    tree = _build_tree(workspace_state.root, Path("."), patterns)
     return tree
 
 
@@ -124,10 +124,10 @@ async def get_file(file_path: str, request: Request):
     if is_ignored(file_path, patterns):
         raise HTTPException(status_code=403, detail="Path is restricted")
 
-    abs_path = (WORKSPACE_ROOT / file_path).resolve()
+    abs_path = (workspace_state.root / file_path).resolve()
     # Security: ensure resolved path is under workspace root
     try:
-        abs_path.relative_to(WORKSPACE_ROOT.resolve())
+        abs_path.relative_to(workspace_state.root.resolve())
     except ValueError:
         raise HTTPException(status_code=403, detail="Path traversal denied")
 
@@ -171,9 +171,9 @@ async def file_info(file_path: str):
     if is_ignored(file_path, patterns):
         raise HTTPException(status_code=403, detail="Path is restricted")
 
-    abs_path = (WORKSPACE_ROOT / file_path).resolve()
+    abs_path = (workspace_state.root / file_path).resolve()
     try:
-        abs_path.relative_to(WORKSPACE_ROOT.resolve())
+        abs_path.relative_to(workspace_state.root.resolve())
     except ValueError:
         raise HTTPException(status_code=403, detail="Path traversal denied")
 
@@ -225,9 +225,9 @@ async def download_files(req: DownloadRequest):
         if is_ignored(rel_path, patterns):
             raise HTTPException(status_code=403, detail=f"Path is restricted: {rel_path}")
         
-        abs_path = (WORKSPACE_ROOT / rel_path).resolve()
+        abs_path = (workspace_state.root / rel_path).resolve()
         try:
-            abs_path.relative_to(WORKSPACE_ROOT.resolve())
+            abs_path.relative_to(workspace_state.root.resolve())
         except ValueError:
             raise HTTPException(status_code=403, detail=f"Path traversal denied: {rel_path}")
         
@@ -264,3 +264,21 @@ async def download_files(req: DownloadRequest):
         media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename={zip_name}"}
     )
+
+class RootUpdateRequest(BaseModel):
+    path: str
+
+@router.get("/api/root")
+async def get_root():
+    return {
+        "root": str(workspace_state.root),
+        "default_root": str(workspace_state.default_root),
+    }
+
+@router.post("/api/root")
+async def set_root(req: RootUpdateRequest):
+    new_path = Path(req.path).resolve()
+    if not new_path.exists() or not new_path.is_dir():
+        raise HTTPException(status_code=400, detail="Invalid directory path")
+    workspace_state.set_root(str(new_path))
+    return {"root": str(workspace_state.root)}
